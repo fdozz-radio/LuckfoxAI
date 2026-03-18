@@ -1,54 +1,33 @@
 # Makefile для LuckFox Pico Mini + YOLOv5 + RTSP
 # Использовать с кросс-компилятором из SDK LuckFox
 
-# Путь к SDK (изменить под вашу систему или установить через env.sh)
-SDK_PATH ?= /opt/luckfox_sdk
+# Путь к SDK (должен быть установлен через env.sh или вручную)
+SDK_PATH ?= /home/fdoz/luckfox-pico
 
-# Попытка найти тулчейн в стандартных местах
-ifeq ($(wildcard $(SDK_PATH)/toolchain/gcc/linux-x86_64/arm-rockchip830-linux-uclibcgnueabihf/bin),)
-  # Если не найдено в SDK_PATH, пробуем найти в домашних директориях
-  TOOLCHAIN_DIR := $(shell find /home -type d -name "arm-rockchip830-linux-uclibcgnueabihf" 2>/dev/null | head -1)
-  ifneq ($(TOOLCHAIN_DIR),)
-    TOOLCHAIN_PATH := $(dir $(TOOLCHAIN_DIR))bin
-  else
-    # Пробуем найти любой rockchip компилятор
-    ROCKCHIP_GCC := $(shell find /home -name "arm-rockchip*-g++" 2>/dev/null | head -1)
-    ifneq ($(ROCKCHIP_GCC),)
-      TOOLCHAIN_PATH := $(dir $(ROCKCHIP_GCC))
-    endif
-  endif
-else
-  TOOLCHAIN_PATH := $(SDK_PATH)/toolchain/gcc/linux-x86_64/arm-rockchip830-linux-uclibcgnueabihf/bin
-endif
+# Пути к заголовочным файлам и библиотекам для RV1106
+MPP_INCLUDE := $(SDK_PATH)/media/mpp/release_mpp_rv1106_arm-rockchip830-linux-uclibcgnueabihf/include/rockchip
+MPP_LIB := $(SDK_PATH)/media/mpp/release_mpp_rv1106_arm-rockchip830-linux-uclibcgnueabihf/lib
 
-# Компилятор и инструменты
+RKNN_INCLUDE := $(SDK_PATH)/rv1106_rv1103/RKNN/include
+RKNN_LIB := $(SDK_PATH)/rv1106_rv1103/RKNN/lib
+
+# Компилятор и инструменты (должны быть в PATH после source env.sh)
 CC = arm-rockchip830-linux-uclibcgnueabihf-gcc
 CXX = arm-rockchip830-linux-uclibcgnueabihf-g++
-AR = arm-rockchip830-linux-uclibcgnueabihf-ar
-LD = arm-rockchip830-linux-uclibcgnueabihf-ld
-
-# Если TOOLCHAIN_PATH указан, добавляем его в PATH
-ifneq ($(TOOLCHAIN_PATH),)
-export PATH := $(TOOLCHAIN_PATH):$(PATH)
-endif
 
 # Флаги компиляции
 CFLAGS = -Wall -Wextra -O2 -std=c++11
-CFLAGS += -I$(SDK_PATH)/rv1106_rv1103/MPP/include
-CFLAGS += -I$(SDK_PATH)/rv1106_rv1103/RKNN/include
+CFLAGS += -I$(MPP_INCLUDE)
+CFLAGS += -I$(RKNN_INCLUDE)
 CFLAGS += -I./
 
 # Флаги линковки
-LDFLAGS = -L$(SDK_PATH)/rv1106_rv1103/MPP/lib \
-          -L$(SDK_PATH)/rv1106_rv1103/RKNN/lib \
+LDFLAGS = -L$(MPP_LIB) \
+          -L$(RKNN_LIB) \
+          -lrockchip_mpp \
           -lrknn_api \
-          -lrk_mpi \
-          -limp \
-          -laiq \
-          -lopencv_core \
-          -lopencv_imgproc \
-          -lopencv_highgui \
           -lpthread \
+          -ldl \
           -lm \
           -lrt
 
