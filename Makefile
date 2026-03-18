@@ -1,9 +1,25 @@
 # Makefile для LuckFox Pico Mini + YOLOv5 + RTSP
 # Использовать с кросс-компилятором из SDK LuckFox
 
-# Путь к SDK (изменить под вашу систему)
+# Путь к SDK (изменить под вашу систему или установить через env.sh)
 SDK_PATH ?= /opt/luckfox_sdk
-TOOLCHAIN_PATH ?= $(SDK_PATH)/toolchain/gcc/linux-x86_64/arm-rockchip830-linux-uclibcgnueabihf/bin
+
+# Попытка найти тулчейн в стандартных местах
+ifeq ($(wildcard $(SDK_PATH)/toolchain/gcc/linux-x86_64/arm-rockchip830-linux-uclibcgnueabihf/bin),)
+  # Если не найдено в SDK_PATH, пробуем найти в домашних директориях
+  TOOLCHAIN_DIR := $(shell find /home -type d -name "arm-rockchip830-linux-uclibcgnueabihf" 2>/dev/null | head -1)
+  ifneq ($(TOOLCHAIN_DIR),)
+    TOOLCHAIN_PATH := $(dir $(TOOLCHAIN_DIR))bin
+  else
+    # Пробуем найти любой rockchip компилятор
+    ROCKCHIP_GCC := $(shell find /home -name "arm-rockchip*-g++" 2>/dev/null | head -1)
+    ifneq ($(ROCKCHIP_GCC),)
+      TOOLCHAIN_PATH := $(dir $(ROCKCHIP_GCC))
+    endif
+  endif
+else
+  TOOLCHAIN_PATH := $(SDK_PATH)/toolchain/gcc/linux-x86_64/arm-rockchip830-linux-uclibcgnueabihf/bin
+endif
 
 # Компилятор и инструменты
 CC = arm-rockchip830-linux-uclibcgnueabihf-gcc
