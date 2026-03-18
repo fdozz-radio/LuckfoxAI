@@ -1,113 +1,231 @@
-# LuckFox Pico Mini YOLOv5 RTSP Server
+# LuckFox Pico Mini + SC3336 Camera + YOLOv5 RKNN + RTSP Stream
 
-Программа для платы LuckFox Pico Mini с камерой SC3336, выполняющая детекцию объектов с помощью YOLOv5 (RKNN) и транслирующая результат по RTSP.
+Полное решение для детекции объектов в реальном времени с трансляцией по RTSP.
+
+## Описание
+
+Программа выполняет:
+1. Захват видео с камеры SC3336 через ISP/VI
+2. Обработку кадров нейросетью YOLOv5 (RKNN формат)
+3. Отрисовку bounding boxes на кадре
+4. Кодирование в H.264 через VENC
+5. RTSP трансляцию результата
 
 ## Структура проекта
 
 ```
 /workspace/
 ├── main.cc              # Основной файл программы
-├── luckfox_mpi.cc       # Функции инициализации MPI (VI, VENC)
-├── luckfox_mpi.h        # Заголовочный файл для MPI
-├── yolov5.cc            # Инициализация и запуск RKNN модели
-├── yolov5.h             # Заголовочный файл для YOLOv5
-├── postprocess_impl.cc  # Постобработка результатов детекции
-├── rtsp_demo.h          # Заголовочный файл для RTSP сервера
-└── README.md            # Этот файл
+├── luckfox_mpi.h        # MPI функции (VI, VENC)
+├── luckfox_mpi.cc       
+├── yolov5.h             # RKNN модель YOLOv5
+├── yolov5.cc            
+├── postprocess_impl.cc  # Постобработка (NMS, декодирование)
+├── rtsp_demo.h          # RTSP сервер интерфейс
+├── rtsp_demo.c          # RTSP сервер реализация
+├── Makefile             # Файл сборки
+└── model/
+    ├── yolov5.rknn      # Модель YOLOv5 (нужно добавить)
+    └── coco_80_labels_list.txt  # Названия классов COCO
 ```
 
 ## Требования
 
-1. Плата **LuckFox Pico Mini** (RV1106)
-2. Камера **SC3336**
-3. Модель YOLOv5 в формате **.rknn** (должна быть в папке `./model/yolov5.rknn`)
-4. SDK для LuckFox Pico с библиотеками:
-   - librknn_api
-   - librga
-   - OpenCV
-   - Библиотеки MPI (VI, VENC, ISP)
+### На хост-компьютере (для сборки):
+- Кросс-компилятор из SDK LuckFox
+- Путь к SDK: `/opt/luckfox_sdk` (или укажите свой в Makefile)
 
-## Компиляция на устройстве
+### На плате LuckFox Pico Mini:
+- Прошивка с поддержкой MPI и RKNN
+- Камера SC3336 подключена к MIPI CSI
+- Библиотеки: `librknn_api.so`, `librk_mpi.so`, `libimp.so`, `libaiq.so`
+- OpenCV для embedded ARM
 
-Пример команды компиляции (адаптируйте пути под вашу среду):
+## Сборка
+
+### Вариант 1: Использование Makefile
 
 ```bash
-arm-linux-gnueabihf-g++ -o yolov5_rtsp \
-    main.cc luckfox_mpi.cc yolov5.cc postprocess_impl.cc \
-    -I./include \
-    -L./lib \
-    -lrknn_api -lrga -lopencv_core -lopencv_imgproc -lopencv_imgcodecs \
-    -lpthread -lm -ldl \
-    -Wl,-rpath,/usr/lib
+# Установите правильный путь к SDK в Makefile
+export SDK_PATH=/path/to/luckfox_sdk
+
+# Сборка
+make clean
+make
+
+# Копирование на плату (замените IP на ваш)
+make install
 ```
 
-Или используйте CMake с предоставленным toolchain файлом от LuckFox.
+### Вариант 2: Ручная компиляция
 
-## Подготовка модели
-
-1. Сконвертируйте модель YOLOv5 в формат RKNN:
 ```bash
-python3 -m rknn_toolkit2 \
-    --config yolov5_config.py \
-    --model yolov5s.pt \
-    --output yolov5s
+# Экспорт путей к инструментальной цепи
+export PATH=$SDK_PATH/toolchain/gcc/linux-x86_64/arm-rockchip830-linux-uclibcgnueabihf/bin:$PATH
+
+# Компиляция
+arm-rockchip830-linux-uclibcgnueabihf-g++ -Wall -O2 -std=c++11 \
+    -I$SDK_PATH/rv1106_rv1103/MPP/include \
+    -I$SDK_PATH/rv1106_rv1103/RKNN/include \
+    -c main.cc -o main.o
+
+arm-rockchip830-linux-uclibcgnueabihf-g++ -Wall -O2 -std=c++11 \
+    -I$SDK_PATH/rv1106_rv1103/MPP/include \
+    -I$SDK_PATH/rv1106_rv1103/RKNN/include \
+    -c luckfox_mpi.cc -o luckfox_mpi.o
+
+arm-rockchip830-linux-uclibcgnueabihf-g++ -Wall -O2 -std=c++11 \
+    -I$SDK_PATH/rv1106_rv1103/MPP/include \
+    -I$SDK_PATH/rv1106_rv1103/RKNN/include \
+    -c yolov5.cc -o yolov5.o
+
+arm-rockchip830-linux-uclibcgnueabihf-g++ -Wall -O2 -std=c++11 \
+    -I$SDK_PATH/rv1106_rv1103/MPP/include \
+    -I$SDK_PATH/rv1106_rv1103/RKNN/include \
+    -c postprocess_impl.cc -o postprocess_impl.o
+
+arm-rockchip830-linux-uclibcgnueabihf-gcc -Wall -O2 \
+    -I. -c rtsp_demo.c -o rtsp_demo.o
+
+# Линковка
+arm-rockchip830-linux-uclibcgnueabihf-g++ -o yolov5_rtsp \
+    main.o luckfox_mpi.o yolov5.o postprocess_impl.o rtsp_demo.o \
+    -L$SDK_PATH/rv1106_rv1103/MPP/lib \
+    -L$SDK_PATH/rv1106_rv1103/RKNN/lib \
+    -lrknn_api -lrk_mpi -limp -laiq \
+    -lopencv_core -lopencv_imgproc -lopencv_highgui \
+    -lpthread -lm -lrt
 ```
 
-2. Скопируйте модель на устройство:
-```bash
-mkdir -p /path/to/app/model
-cp yolov5s.rknn /path/to/app/model/yolov5.rknn
+## Подготовка модели YOLOv5
+
+### Конвертация модели в RKNN формат
+
+На хост-компьютере выполните конвертацию PyTorch модели:
+
+```python
+import rknn_toolkit2 as rknn
+
+# Создание RKNN объекта
+rknn = rknn.RKNN2()
+
+# Конфигурация
+rknn.config(
+    target_platform='rv1106',
+    optimization_level=3
+)
+
+# Загрузка ONNX модели
+rknn.load_onnx(model='./yolov5s.onnx')
+
+# Build модели
+rknn.build(do_quantization=True, dataset='./dataset.txt')
+
+# Экспорт
+rknn.export_rknn('./yolov5.rknn')
 ```
 
-## Запуск
+Скопируйте полученный файл `yolov5.rknn` в папку `model/` на плате.
+
+## Запуск на плате
 
 ```bash
-cd /path/to/app
+# Копирование файлов на плату
+scp yolov5_rtsp root@192.168.1.10:/root/
+scp -r model root@192.168.1.10:/root/
+
+# Подключение к плате
+ssh root@192.168.1.10
+
+# Запуск
+cd /root
 ./yolov5_rtsp
 ```
 
 ## Просмотр потока
 
-После запуска программа выведет сообщение:
+RTSP поток доступен по адресу:
 ```
-RTSP URL: rtsp://<device-ip>/live/0
+rtsp://<IP-платы>/live/0
 ```
 
-Для просмотра используйте:
-- **VLC**: `vlc rtsp://<IP-адрес-платы>/live/0`
-- **FFplay**: `ffplay rtsp://<IP-адрес-платы>/live/0`
-- **ONVIF Device Manager** или другой RTSP клиент
+### VLC Player
+```
+vlc rtsp://192.168.1.10/live/0
+```
+
+### FFplay
+```bash
+ffplay -rtsp_transport tcp rtsp://192.168.1.10/live/0
+```
+
+### GStreamer
+```bash
+gst-launch-1.0 rtspsrc location=rtsp://192.168.1.10/live/0 ! rtph264depay ! h264parse ! avdec_h264 ! autovideosink
+```
 
 ## Параметры
 
-В коде можно изменить:
-- `STREAM_WIDTH`, `STREAM_HEIGHT` - разрешение выходного потока (по умолчанию 640x480)
-- `MODEL_WIDTH`, `MODEL_HEIGHT` - размер входа модели (по умолчанию 640x640)
-- `detect_interval` - частота детекции (каждые N кадров, по умолчанию 3)
+В коде можно изменить следующие параметры:
 
-## Особенности реализации
+```cpp
+#define STREAM_WIDTH  640    // Разрешение выходного потока
+#define STREAM_HEIGHT 480
 
-1. **Letterbox преобразование** - изображение масштабируется с сохранением пропорций
-2. **NMS (Non-Maximum Suppression)** - фильтрация перекрывающихся детекций
-3. **Оптимизация** - детекция выполняется не каждый кадр для повышения FPS
-4. **Корректная обработка буферов** - правильное освобождение ресурсов MPI
-5. **Обработка сигналов** - корректное завершение по Ctrl+C
+#define MODEL_WIDTH  640     // Размер входа модели YOLOv5
+#define MODEL_HEIGHT 640
+
+#define NMS_THRESH  0.45f    // Порог NMS
+#define BOX_THRESH  0.25f    // Порог доверия
+
+int detect_interval = 3;     // Детекция каждые N кадров
+```
+
+## Структура работы
+
+1. **Инициализация**:
+   - Загрузка RKNN модели
+   - Инициализация MPI системы
+   - Настройка ISP для камеры
+   - Создание VI канала
+   - Создание VENC канала (H.264)
+   - Запуск RTSP сервера
+
+2. **Основной цикл**:
+   - Получение кадра от камеры (VI)
+   - Преобразование YUV → BGR
+   - Letterbox преобразование для модели
+   - RKNN инференс
+   - Постобработка (NMS)
+   - Отрисовка bounding boxes
+   - Преобразование BGR → YUV
+   - Отправка в энкодер (VENC)
+   - RTSP трансляция закодированного потока
+
+3. **Завершение**:
+   - Корректное освобождение всех ресурсов
+   - Остановка ISP, VI, VENC
+   - Выгрузка RKNN модели
 
 ## Troubleshooting
 
-### Ошибка инициализации камеры
-- Проверьте подключение камеры SC3336
-- Убедитесь, что IQ файлы присутствуют в `/etc/iqfiles`
+### Ошибка "RK_MPI_SYS_Init failed"
+- Проверьте загрузку модулей ядра: `lsmod | grep rga`
+- Перезапустите сервисы: `/etc/init.d/S99mpp stop && /etc/init.d/S99mpp start`
 
-### Ошибка загрузки модели
-- Проверьте путь к модели (`./model/yolov5.rknn`)
-- Убедитесь, что модель сконвертирована для RV1106
+### Ошибка "Failed to load YOLOv5 model"
+- Проверьте путь к модели: `ls -la ./model/yolov5.rknn`
+- Убедитесь что модель сконвертирована для RV1106
 
-### Нет изображения в RTSP
-- Проверьте настройки сети
-- Убедитесь, что порт 554 не занят
-- Проверьте логи на ошибки VENC
+### Нет изображения с камеры
+- Проверьте подключение камеры: `dmesg | grep sensor`
+- Убедитесь что IQ файлы присутствуют: `ls /etc/iqfiles/`
+
+### RTSP не подключается
+- Проверьте firewall: `iptables -L`
+- Убедитесь что порт 554 открыт
+- Проверьте сеть: `ping <IP-платы>`
 
 ## Лицензия
 
-Код постобработки основан на примерах Rockchip Electronics Co., Ltd. (Apache License 2.0)
+Проект использует код из SDK Rockchip под лицензией Apache 2.0.
